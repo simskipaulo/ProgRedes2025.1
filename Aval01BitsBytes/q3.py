@@ -1,47 +1,50 @@
-# Abrir o arquivo JPEG e ler os 6 primeiros bytes
-with open("IMG_20250509_184205.jpg", "rb") as f:
-    header = f.read(6)
+arquivo = "IMG_20250509_184205.jpg"
 
-# Extrair os bytes 4 e 5 que indicam o tamanho dos metadados (app1DataSize)
-app1DataSize = int.from_bytes(header[4:6], byteorder='big')
-print(f"Tamanho dos metadados (app1DataSize): {app1DataSize} bytes")
+with open(arquivo, "rb") as f:
+    f.read(2)  # ignora SOI
+    while True:
+        marker = f.read(2)
+        if len(marker) < 2: exit("Fim do arquivo sem encontrar APP1.")
+        if marker[0] != 0xFF: continue
+        if marker == b'\xFF\xE1':
+            size = int.from_bytes(f.read(2), 'big')
+            app1 = f.read(size - 2)
+            break
+        else:
+            sz = int.from_bytes(f.read(2), 'big')
+            f.read(sz - 2)
 
-# Abrir novamente o arquivo
-with open("IMG_20250509_184205.jpg", "rb") as f:
-    f.read(4)  # Ignorar os 4 primeiros bytes
-    app1Data = f.read(app1DataSize)  # Ler os metadados
+# Verifica se há dados suficientes
+if len(app1) < 18:
+    exit("APP1 muito curto")
 
-# Extrair os 2 bytes na posição 16, que indicam a quantidade de metadados
-qtd_metadados = int.from_bytes(app1Data[16:18], byteorder='big')
-print(f"Quantidade de metadados: {qtd_metadados}")
+qtd = int.from_bytes(app1[16:18], 'big')
+print(f"Quantidade de metadados: {qtd}")
 
-# Variáveis para armazenar a largura e altura encontradas
-largura = None
-altura = None
-
-# Começa na posição 18 onde começam os metadados
 pos = 18
+largura = altura = None
 
-# Constantes dos códigos de metadado
-LARGURA_TAG = 0x0100
-ALTURA_TAG = 0x0101
+for _ in range(qtd):
+    if pos + 12 > len(app1): break
+    tag = int.from_bytes(app1[pos:pos+2], 'big')
+    tipo = int.from_bytes(app1[pos+2:pos+4], 'big')
+    n = int.from_bytes(app1[pos+4:pos+8], 'big')
+    val_or_offset = int.from_bytes(app1[pos+8:pos+12], 'big')
 
-# Laço para percorrer todos os metadados
-for i in range(qtd_metadados):
-    tag = int.from_bytes(app1Data[pos:pos+2], byteorder='big')
-    tipo = int.from_bytes(app1Data[pos+2:pos+4], byteorder='big')
-    repeticoes = int.from_bytes(app1Data[pos+4:pos+8], byteorder='big')
-    valor = int.from_bytes(app1Data[pos+8:pos+12], byteorder='big')
+    if tag == 0x0100 or tag == 0x0101:
+        if tipo == 3 and n == 1:
+            valor = val_or_offset >> 16  # unsigned short no início
+        else:
+            offset = val_or_offset + 12
+            if offset + 4 <= len(app1):
+                valor = int.from_bytes(app1[offset:offset+4], 'big')
+            else:
+                valor = None
 
-    # Verifica se o tag corresponde à largura ou altura
-    if tag == LARGURA_TAG:
-        largura = valor
-    elif tag == ALTURA_TAG:
-        altura = valor
+        if tag == 0x0100: largura = valor
+        elif tag == 0x0101: altura = valor
 
-    # Avança 12 bytes para o próximo metadado
     pos += 12
 
-# Exibe os resultados
-print(f"Largura da imagem: {largura} pixels")
-print(f"Altura da imagem: {altura} pixels")
+print(f"Largura da imagem: {largura or 'não encontrada'} px")
+print(f"Altura da imagem: {altura or 'não encontrada'} px")
